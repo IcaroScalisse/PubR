@@ -1,9 +1,9 @@
 Package: PubR
 Type: Package
 Title: Tools for Retrieving and Analyzing PubMed Data
-Version: 0.1
+Version: 0.1.0
 Author: Icaro Scalisse
-Maintainer: Icaro Scalisse icaro.scalisse@unesp.br
+Maintainer: Icaro Scalisse <icaro.scalisse@unesp.br>
 Description: Functions to search PubMed, fetch summaries, analyze titles, journals and generate word clouds.
 License: MIT
 Encoding: UTF-8

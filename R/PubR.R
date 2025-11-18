@@ -1,21 +1,12 @@
-# Pacotes necessários
-if (!requireNamespace("litsearchr", quietly = TRUE)) install.packages("litsearchr")
-if (!requireNamespace("tm", quietly = TRUE)) install.packages("tm")
-if (!requireNamespace("SnowballC", quietly = TRUE)) install.packages("SnowballC")
-if (!requireNamespace("wordcloud", quietly = TRUE)) install.packages("wordcloud")
-if (!requireNamespace("rentrez", quietly = TRUE)) install.packages("rentrez")
-if (!requireNamespace("RColorBrewer", quietly = TRUE)) install.packages("RColorBrewer")
-
-library(litsearchr)
-library(tm)
-library(SnowballC)
-library(wordcloud)
-library(rentrez)
-library(RColorBrewer)
-library(ggplot2)
-library(dplyr)
-library(httr)
-library(jsonlite)
+#' @import rentrez
+#' @import httr
+#' @import jsonlite
+#' @import tm
+#' @import wordcloud
+#' @import RColorBrewer
+#' @import ggplot2
+#' @import dplyr
+NULL
 
 #' Generate a PubMed Word Cloud
 #'
