@@ -279,84 +279,59 @@ pubmed_year_publication <- function(
 #' @export
 
 pubmed_top_authors <- function(keyword, max_results = 1000, batch_size = 300, top_n = 30) {
-
+  
   message("🔍 Searching PubMed for keyword: ", keyword)
-
-  all_ids <- c()
-  retstart <- 0
-  web_hist <- NULL
-
-  # ---- Batch search with retry + exponential backoff ----
-  while (length(all_ids) < max_results) {
-
-    fetch_limit <- min(batch_size, max_results - length(all_ids))
-    retries <- 1
-    max_retries <- 5
-
-    repeat {
-      search <- tryCatch({
-        entrez_search(
-          db = "pubmed",
-          term = keyword,
-          retmax = fetch_limit,
-          retstart = retstart,
-          use_history = TRUE
-        )
-      }, error = function(e) NULL)
-
-      if (!is.null(search) && length(search$ids) > 0) break
-
-      wait <- 2^(retries - 1)
-      message("⏳ Request failed. Waiting ", wait, "s (attempt ", retries, ")")
-      Sys.sleep(wait)
-
-      retries <- retries + 1
-      if (retries > max_retries) break
-    }
-
-    if (is.null(search) || length(search$ids) == 0) {
-      message("⚠️ No more IDs returned.")
-      break
-    }
-
-    all_ids <- c(all_ids, search$ids)
-    retstart <- retstart + fetch_limit
-
-    web_hist <- search$web_history   # <-- keep history from ANY successful batch
-
-    if (length(all_ids) >= max_results) break
-  }
-
-  if (length(all_ids) == 0) {
+  
+  # ---- Single search using WebEnv (correct way) ----
+  search <- tryCatch({
+    entrez_search(
+      db = "pubmed",
+      term = keyword,
+      retmax = max_results,
+      use_history = TRUE
+    )
+  }, error = function(e) NULL)
+  
+  if (is.null(search) || length(search$ids) == 0) {
     message("⚠️ No PubMed entries found.")
     return(invisible(NULL))
   }
-
+  
+  all_ids <- search$ids
+  web_hist <- search$web_history
+  
   message("📄 Fetching summaries for ", length(all_ids), " articles via WebEnv...")
-
-  # ---- Fetch summaries in batches (avoid 414 error) ----
+  
+  # ---- Fetch summaries in batches ----
   all_summaries <- list()
   fetched <- 0
-
+  
   while (fetched < length(all_ids)) {
-    fetch_limit <- min(300, length(all_ids) - fetched)
-
-    summaries <- entrez_summary(
-      db = "pubmed",
-      web_history = web_hist,
-      retstart = fetched,
-      retmax = fetch_limit
-    )
-
+    fetch_limit <- min(batch_size, length(all_ids) - fetched)
+    
+    summaries <- tryCatch({
+      entrez_summary(
+        db = "pubmed",
+        web_history = web_hist,
+        retstart = fetched,
+        retmax = fetch_limit
+      )
+    }, error = function(e) NULL)
+    
+    if (is.null(summaries)) {
+      message("⚠️ Failed to fetch a batch. Breaking.")
+      break
+    }
+    
     all_summaries <- c(all_summaries, summaries)
     fetched <- fetched + fetch_limit
   }
-
+  
   # ---- Extract authors ----
   extract_authors <- function(x) {
     aut <- x$authors
     if (is.null(aut)) return(character(0))
-
+    
     if (is.list(aut)) {
       return(sapply(aut, function(a) {
         if (is.list(a) && "name" %in% names(a)) return(a$name)
@@ -364,14 +339,13 @@ pubmed_top_authors <- function(keyword, max_results = 1000, batch_size = 300, to
         return(NA)
       }))
     }
-
+    
     if (is.character(aut)) return(aut)
-
     return(character(0))
   }
-
+  
   authors <- unlist(lapply(all_summaries, extract_authors))
-
+  
   # ---- Clean ----
   authors <- trimws(authors)
   authors <- authors[
@@ -379,18 +353,18 @@ pubmed_top_authors <- function(keyword, max_results = 1000, batch_size = 300, to
       authors != "" &
       !authors %in% c("Author", "AUTHORS", "Authors")
   ]
-
+  
   if (length(authors) == 0) {
     message("⚠️ No valid authors found.")
     return(invisible(NULL))
   }
-
+  
   # ---- Count ----
   df <- as.data.frame(table(authors))
   df <- df |>
     arrange(desc(Freq)) |>
     slice_head(n = top_n)
-
+  
   # ---- Plot ----
   p <- ggplot(df, aes(x = reorder(authors, Freq), y = Freq)) +
     geom_col(fill = "#0077B6") +
@@ -401,10 +375,11 @@ pubmed_top_authors <- function(keyword, max_results = 1000, batch_size = 300, to
       x = "Author",
       y = "Number of Publications"
     )
-
+  
   print(p)
   invisible(df)
 }
+
 
 #' Most Common Journals for a PubMed Keyword
 #'
@@ -421,50 +396,47 @@ pubmed_top_authors <- function(keyword, max_results = 1000, batch_size = 300, to
 
 top_journals <- function(keyword, max_results = 5000, top_n = 15, batch_size = 500) {
   message("🔍 Searching PubMed for keyword: ", keyword)
-
-  # --- Search IDs + get WebEnv / QueryKey ---
+  
+  # Search with proper web history creation
   search_res <- entrez_search(
     db = "pubmed",
     term = keyword,
     retmax = max_results,
-    usehistory = TRUE
+    use_history = TRUE
   )
-
+  
   if (length(search_res$ids) == 0) {
     stop("No results found for this keyword.")
   }
-
-  message("📄 Fetching summaries for ", length(search_res$ids), " articles...")
-
-  # --- Batch fetch summaries ---
+  
+  total <- as.numeric(search_res$count)
+  message("📄 Fetching summaries for ", total, " articles...")
+  
   all_summaries <- list()
-  num_batches <- ceiling(length(search_res$ids) / batch_size)
-
+  num_batches <- ceiling(total / batch_size)
+  
   for (i in seq_len(num_batches)) {
-    start <- (i - 1) * batch_size + 1
-    end <- min(i * batch_size, length(search_res$ids))
-
-    message("  ⏳ Batch ", i, "/", num_batches, " (IDs ", start, " to ", end, ")")
-
+    start <- (i - 1) * batch_size
+    message("  ⏳ Batch ", i, "/", num_batches)
+    
     batch <- entrez_summary(
       db = "pubmed",
       web_history = search_res$web_history,
-      retstart = start - 1,
+      retstart = start,
       retmax = batch_size
     )
-
+    
     all_summaries <- c(all_summaries, batch)
-    Sys.sleep(0.34)  # Prevent rate-limit (3 requests/s)
+    Sys.sleep(0.34)  # evita rate limit
   }
-
-  # --- Extract journal names ---
+  
   journals <- unlist(lapply(all_summaries, function(x) x$fulljournalname))
-
+  journals <- journals[!is.na(journals)]
+  
   df <- as.data.frame(table(journals))
   df <- df[order(df$Freq, decreasing = TRUE), ]
   df <- head(df, top_n)
-
-  # --- Plot ---
+  
   ggplot(df, aes(x = reorder(journals, Freq), y = Freq)) +
     geom_col() +
     coord_flip() +
@@ -474,10 +446,9 @@ top_journals <- function(keyword, max_results = 5000, top_n = 15, batch_size = 5
       x = "Journal",
       y = "Number of Publications"
     ) +
-    theme(
-      plot.title = element_text(face = "bold", hjust = 0.5)
-    )
+    theme(plot.title = element_text(face = "bold", hjust = 0.5))
 }
+
 
 #' Retrieve the Most Frequent Words in PubMed Titles for a Given Year
 #'
