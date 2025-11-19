@@ -101,3 +101,13 @@ get_top_words_by_year(2020, top_n = 30)
 License
 
 This package is licensed under the MIT License, allowing free use, modification, and distribution.
+
+Data & Stopwords
+
+The package includes a helper data file:
+
+data/stopwords.R — this file defines a character vector named stopwords (or similar) that contains words excluded from textual analyses (e.g., common words like “the”, “and”, or other domain-specific stopwords).
+
+This vector is used by functions that process titles and generate word frequency tables and word clouds.
+
+You can customize the list by editing data/stopwords.R before building/installing the package, or by supplying your own stopword vector in your R session (for development/testing with devtools::load_all() or via function arguments if you add that feature).
